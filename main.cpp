@@ -17,21 +17,43 @@
 
 using namespace std;
 
+// Мьютекс для синхронизации вывода в консоль
+mutex log_mutex; 
 // Глобальная хэш-таблица для хранения таблиц
 HashTable tables(10);
 // Мьютекс для синхронизации доступа к таблицам
 mutex tables_mutex;
 
-// Функция для обработки клиентского соединения
-void handle_client(int client_socket) {
+// Функция для получения информации о клиенте (IP-адрес и порт)
+string get_client_info(struct sockaddr_in& address) {
+    char ip[INET_ADDRSTRLEN]; // Буфер для хранения IP-адреса в текстовом формате
+
+    // Преобразуем сетевой порядок байтов IP-адреса в текстовый формат
+    inet_ntop(AF_INET, &(address.sin_addr), ip, INET_ADDRSTRLEN);
+
+    // Преобразуем порт из сетевого порядка байтов в хостовой порядок байтов
+    int port = ntohs(address.sin_port);
+
+    // Возвращаем строку, содержащую IP-адрес и порт
+    return string(ip) + ":" + to_string(port);
+}
+
+// Функция для логирования сообщений с синхронизацией доступа
+void log_message(const string& message) {
+    // Блокируем мьютекс для обеспечения потокобезопасного доступа к логу
+    lock_guard<mutex> guard(log_mutex);
+    cout << message << endl;
+}
+
+void handle_client(int client_socket, const string& client_info) {
     char buffer[1024] = {0};
     string response;
 
-    while (true) {  // Бесконечный цикл для обработки нескольких команд
+    while (true) { 
         memset(buffer, 0, sizeof(buffer));  // Очищаем буфер
         int valread = read(client_socket, buffer, 1024);  // Читаем данные от клиента
         if (valread <= 0) {
-            break;  // Если клиент отключился, выходим из цикла
+            break;
         }
 
         string command(buffer);
@@ -166,11 +188,13 @@ void handle_client(int client_socket) {
         send(client_socket, response.c_str(), response.size(), 0);
     }
 
+    // Логируем отсоединение клиента
+    log_message("Client disconnected: " + client_info);
+
     close(client_socket);  // Закрываем соединение
 }
 
 int main() {
-    // Загружаем таблицы из файла схемы
     create_tables_from_schema("schema.json");
 
     // Создаем TCP-сервер
@@ -179,7 +203,7 @@ int main() {
     int opt = 1;
     socklen_t addrlen = sizeof(address);
 
-    // Создаем сокет
+    // Создаем сокет (AF_INET - IPv4, SOCK_STREAM - TCP)
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("Socket failed");
         exit(EXIT_FAILURE);
@@ -191,6 +215,7 @@ int main() {
     // address.sin_addr.s_addr = inet_addr("5.130.110.189");
     address.sin_port = htons(7432);
 
+    // Cвязываем сокет с указанным IP-адресом и портом
     if (::bind(server_fd, (struct sockaddr *)&address, addrlen) < 0) {
         perror("Bind failed");
         exit(EXIT_FAILURE);
@@ -205,16 +230,20 @@ int main() {
     cout << "Server is running on port 7432. Waiting for connections..." << endl;
 
     while (true) {
-        // Принимаем новое соединение
-        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen)) < 0) {
-            perror("Accept failed");
-            continue;
-        }
-
-        // Создаем новый поток для обработки клиента
-        thread client_thread(handle_client, new_socket);
-        client_thread.detach();  // Отсоединяем поток
+    // Принимаем новое соединение от клиента и возвращаем новый сокет
+    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen)) < 0) {
+        perror("Accept failed");
+        continue;
     }
+
+    // Получаем информацию о клиенте
+    string client_info = get_client_info(address);
+    log_message("Client connected: " + client_info);
+
+    // Создаем новый поток для обработки клиента
+    thread client_thread(handle_client, new_socket, client_info);
+    client_thread.detach();  // Отсоединяем поток
+}
 
     return 0;
 }
