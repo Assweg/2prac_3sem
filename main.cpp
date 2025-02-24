@@ -212,7 +212,6 @@ int main() {
     // Привязываем сокет к порту 7432
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
-    // address.sin_addr.s_addr = inet_addr("5.130.110.189");
     address.sin_port = htons(7432);
 
     // Cвязываем сокет с указанным IP-адресом и портом
