@@ -1,0 +1,1 @@
+g++ -o db_server main.cpp HashTable.cpp Table.cpp CommandParser.cpp FileHandler.cpp -std=c++17 -pthread
